@@ -117,10 +117,12 @@ class SwiftF0:
 
         # Device selection logic
         available_providers = onnxruntime.get_available_providers()
-
         if device is None:
             # Auto-select: prefer CUDA if available
             self.device = "cuda" if SwiftF0.is_cuda_available() else "cpu"
+            print(
+                f"[SwiftF0] Auto-selected device: {self.device} (from available providers: {available_providers})"
+            )
         elif device == "cuda":
             if not SwiftF0.is_cuda_available():
                 raise RuntimeError(
@@ -141,7 +143,7 @@ class SwiftF0:
 
         # Set providers based on device
         providers = (
-            ["CUDAExecutionProvider", "AzureExecutionProvider", "CPUExecutionProvider"]
+            ["CUDAExecutionProvider", "CPUExecutionProvider"]
             if self.device == "cuda"
             else ["CPUExecutionProvider"]
         )
@@ -219,10 +221,7 @@ class SwiftF0:
     def is_cuda_available() -> bool:
         """Check if CUDA Execution Provider is available."""
         providers = onnxruntime.get_available_providers()
-        return (
-            "CUDAExecutionProvider" in providers
-            or "AzureExecutionProvider" in providers
-        )
+        return "CUDAExecutionProvider" in providers
 
     def _compute_voicing(
         self, pitch_hz: np.ndarray, confidence: np.ndarray
