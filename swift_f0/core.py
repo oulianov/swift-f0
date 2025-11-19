@@ -124,7 +124,9 @@ class SwiftF0:
         session_options.inter_op_num_threads = 1
         session_options.intra_op_num_threads = 1
         self.pitch_session = onnxruntime.InferenceSession(
-            model_path, session_options, providers=["CPUExecutionProvider"]
+            model_path,
+            session_options,
+            providers=["CUDAExecutionProvider", "CPUExecutionProvider"],
         )
         self.pitch_input_name = self.pitch_session.get_inputs()[0].name
 
