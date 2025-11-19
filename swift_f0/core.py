@@ -117,13 +117,12 @@ class SwiftF0:
 
         # Device selection logic
         available_providers = onnxruntime.get_available_providers()
-        cuda_available = "CUDAExecutionProvider" in available_providers
 
         if device is None:
             # Auto-select: prefer CUDA if available
-            self.device = "cuda" if cuda_available else "cpu"
+            self.device = "cuda" if SwiftF0.is_cuda_available() else "cpu"
         elif device == "cuda":
-            if not cuda_available:
+            if not SwiftF0.is_cuda_available():
                 raise RuntimeError(
                     f"CUDA requested but not available. "
                     f"Available providers: {available_providers}. "
