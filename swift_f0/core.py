@@ -140,6 +140,7 @@ class SwiftF0:
         session_options = onnxruntime.SessionOptions()
         session_options.inter_op_num_threads = 1
         session_options.intra_op_num_threads = 1
+        session_options.log_severity_level = 1
 
         # Set providers based on device
         providers = (
