@@ -142,7 +142,7 @@ class SwiftF0:
 
         # Set providers based on device
         providers = (
-            ["CUDAExecutionProvider", "CPUExecutionProvider"]
+            ["CUDAExecutionProvider", "AzureExecutionProvider", "CPUExecutionProvider"]
             if self.device == "cuda"
             else ["CPUExecutionProvider"]
         )
@@ -219,7 +219,11 @@ class SwiftF0:
     @staticmethod
     def is_cuda_available() -> bool:
         """Check if CUDA Execution Provider is available."""
-        return "CUDAExecutionProvider" in onnxruntime.get_available_providers()
+        providers = onnxruntime.get_available_providers()
+        return (
+            "CUDAExecutionProvider" in providers
+            or "AzureExecutionProvider" in providers
+        )
 
     def _compute_voicing(
         self, pitch_hz: np.ndarray, confidence: np.ndarray
