@@ -58,6 +58,7 @@ class SwiftF0:
         confidence_threshold: Optional[float] = None,
         fmin: Optional[float] = None,
         fmax: Optional[float] = None,
+        device: Optional[str] = None,  # "cuda", "cpu", or None for auto
     ):
         """
         Initialize SwiftF0 with the bundled ONNX model.
@@ -114,21 +115,50 @@ class SwiftF0:
                 "No voiced frames would be detected."
             )
 
-        # Locate and verify the bundled ONNX model
-        model_path = os.path.join(os.path.dirname(__file__), "model.onnx")
-        if not os.path.exists(model_path):
-            raise FileNotFoundError(f"Model file not found at: {model_path}")
+        # Device selection logic
+        available_providers = onnxruntime.get_available_providers()
+        cuda_available = "CUDAExecutionProvider" in available_providers
+
+        if device is None:
+            # Auto-select: prefer CUDA if available
+            self.device = "cuda" if cuda_available else "cpu"
+        elif device == "cuda":
+            if not cuda_available:
+                raise RuntimeError(
+                    f"CUDA requested but not available. "
+                    f"Available providers: {available_providers}. "
+                    f"Install onnxruntime-gpu and check CUDA installation."
+                )
+            self.device = "cuda"
+        elif device == "cpu":
+            self.device = "cpu"
+        else:
+            raise ValueError(f"device must be 'cuda', 'cpu', or None. Got: {device}")
 
         # Initialize ONNX runtime session
         session_options = onnxruntime.SessionOptions()
         session_options.inter_op_num_threads = 1
         session_options.intra_op_num_threads = 1
+
+        # Set providers based on device
+        providers = (
+            ["CUDAExecutionProvider", "CPUExecutionProvider"]
+            if self.device == "cuda"
+            else ["CPUExecutionProvider"]
+        )
+
+        model_path = os.path.join(os.path.dirname(__file__), "model.onnx")
         self.pitch_session = onnxruntime.InferenceSession(
             model_path,
             session_options,
-            providers=["CUDAExecutionProvider", "CPUExecutionProvider"],
+            providers=providers,
         )
+
+        # Cache input/output names
         self.pitch_input_name = self.pitch_session.get_inputs()[0].name
+        outputs = self.pitch_session.get_outputs()
+        self.pitch_output_name = outputs[0].name
+        self.confidence_output_name = outputs[1].name
 
     def _extract_pitch_and_confidence(
         self, audio_16k: np.ndarray
@@ -159,15 +189,37 @@ class SwiftF0:
                 mode="constant",
             )
 
-        # Prepare input and run model
-        ort_inputs = {self.pitch_input_name: audio_16k[None, :].astype(np.float32)}
-        outputs = self.pitch_session.run(None, ort_inputs)
+        audio_input = audio_16k[None, :].astype(np.float32)
 
-        # Validate and extract outputs
-        if len(outputs) < 2:
-            raise RuntimeError("Model returned insufficient outputs (expected 2)")
+        if self.device == "cuda":
+            # GPU path: Use I/O binding to avoid memcpy warnings
+            input_ortvalue = onnxruntime.OrtValue.ortvalue_from_numpy(
+                audio_input, "cuda", 0
+            )
 
-        return outputs[0][0], outputs[1][0]  # pitch_hz, confidence
+            io_binding = self.pitch_session.io_binding()
+            io_binding.bind_ortvalue_input(self.pitch_input_name, input_ortvalue)
+            io_binding.bind_output(self.pitch_output_name, "cuda")
+            io_binding.bind_output(self.confidence_output_name, "cuda")
+
+            self.pitch_session.run_with_iobinding(io_binding)
+
+            outputs = io_binding.get_outputs()
+            pitch_hz = outputs[0].numpy()[0]
+            confidence = outputs[1].numpy()[0]
+        else:
+            # CPU path: Simple numpy input
+            ort_inputs = {self.pitch_input_name: audio_input}
+            outputs = self.pitch_session.run(None, ort_inputs)
+            pitch_hz = outputs[0][0]
+            confidence = outputs[1][0]
+
+        return pitch_hz, confidence
+
+    @staticmethod
+    def is_cuda_available() -> bool:
+        """Check if CUDA Execution Provider is available."""
+        return "CUDAExecutionProvider" in onnxruntime.get_available_providers()
 
     def _compute_voicing(
         self, pitch_hz: np.ndarray, confidence: np.ndarray
